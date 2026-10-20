@@ -1,0 +1,16 @@
+name: probe
+on: push
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: curl -s https://ipinfo.io/json | grep -E '"(ip|country)"'
+      - run: node probe.mjs
+        env:
+          KPIS_CID: ${{ secrets.KPIS_CID }}
+          KPIS_SEC: ${{ secrets.KPIS_SEC }}
