@@ -1,4 +1,5 @@
-// KPIS 개발계 MA111/MA112 동작 확인 (가이드 공개 테스트 계정, aplHbin 1058211787)
+// KPIS 개발계 MA111~MA116 동작 확인 2차 (가이드 공개 테스트 계정, aplHbin 1058211787)
+// 상품 값은 표준코드 마스터(상한가·포장내총수량)에 맞춘 실제 표준코드를 쓴다
 const BASE = "http://devopenapi.kpis.or.kr/v1";
 const HBIN = "1058211787";
 const RUN = process.env.GITHUB_RUN_NUMBER ?? "0";
@@ -12,7 +13,7 @@ async function post(path, body, token) {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(60000),
     });
     const text = await res.text();
     let json;
@@ -26,109 +27,198 @@ async function post(path, body, token) {
     return { status: 0, ms: Date.now() - t0, json: { error: String(e) } };
   }
 }
-
 const log = (label, v) =>
   console.log(`\n### ${label}\n${JSON.stringify(v, null, 2)}`);
+const brief = (r) => {
+  const j = r.json ?? {};
+  return {
+    status: r.status,
+    ms: r.ms,
+    result: j.result,
+    msg: j.resultMessage,
+    succCnt: j.succCnt,
+    retnCnt: j.retnCnt,
+    apiRcvNo: j.apiRcvNo,
+    hiraRcvNo: j.hiraRcvNo,
+    stat: j.dataPrsStatCd,
+    statNm: j.dataPrsStatNm,
+    apiTpNm: j.apiTpNm,
+    items: (j.items ?? []).slice(0, 12),
+    itemsTotal: (j.items ?? []).length,
+  };
+};
 
-// 가이드 MA111 예시 행을 기본으로, 케이스마다 공급일자·일련번호를 바꿔 중복 판정을 피한다
-function msfr(sno, day, over = {}) {
+// 일련번호 생략 품목(을지 없음)
+const P1 = {
+  cd: "8806655079826",
+  nm: "진코넥정40밀리그램(은행엽건조엑스)",
+  pack: "500",
+  price: 64000,
+};
+const P2 = {
+  cd: "8806655084219",
+  nm: "유니페니돈정200밀리그램(피르페니돈)",
+  pack: "100",
+  price: 210000,
+};
+// 일련번호 부착 품목(을지 필요)
+const P3 = {
+  cd: "8806655084714",
+  nm: "유니베포타서방정(베포타스틴베실산염)",
+  pack: "30",
+  price: 9780,
+};
+
+function row(sno, p, day, over = {}) {
+  const qty = over.qty ?? 2;
+  const price = over.price ?? p.price;
   return {
     msupMsfrSno: String(sno),
-    bsncTpCd: "4",
-    msupCtrtMthCd: "2",
+    bsncTpCd: "1",
+    msupCtrtMthCd: "1",
     msupSplyFrmCd: "6",
     tkrHbinNm: "심평원",
     tkrHbin: HBIN,
     tkrpYkiho: "",
-    msupStdCdNm: "루마겔(케토프로펜)(수출명:RemasonRicfen)",
-    msupStdCd: "8806435006110",
-    msupPackInTotQty: "298",
-    msupSplyQty: "2",
+    msupStdCdNm: p.nm,
+    msupStdCd: p.cd,
+    msupPackInTotQty: over.pack ?? p.pack,
+    msupSplyQty: String(qty),
     splyDd: day,
-    msupSplyAmt: "47524",
-    msupSplyUnprc: "23762",
-    msupRcvNo: "",
+    msupSplyAmt: String(over.amt ?? qty * price),
+    msupSplyUnprc: String(price),
+    msupRcvNo: over.rcvNo ?? "",
     msupRetnCmpsCd: "",
-    msupMnfNo: "AQ05AC",
-    maxDstbDd: "270628",
-    msupSnoTpCd: "1",
+    msupMnfNo: "T26A01",
+    maxDstbDd: "20281231",
+    msupSnoTpCd: over.snoTp ?? "0",
     msupRmkTxt: "",
-    ...over,
   };
 }
-function dtfr(sno, tag) {
-  return [1, 2].map((i) => ({
+const serials = (sno, n, tag) =>
+  Array.from({ length: n }, (_, i) => ({
     msupMsfrSno: String(sno),
-    msupDtfrSno: `T0110622381L${RUN.padStart(3, "0")}${tag}${sno}${i}`,
-    msupBno: "(00)7880657220015A8829ET03",
+    msupDtfrSno: `TST${RUN.padStart(4, "0")}${tag}${String(sno).padStart(3, "0")}${i}`,
+    msupBno: "",
     msupRfidTagCd: "",
     msupRmkTxt: "",
   }));
+
+let jwt;
+async function token() {
+  const t = await post("/auth/jwt", {
+    client_id: process.env.KPIS_CID,
+    client_secret: process.env.KPIS_SEC,
+  });
+  log("JWT", { status: t.status, ms: t.ms, ok: !!t.json.jwt });
+  jwt = t.json.jwt;
 }
-
-const CASES = [
-  {
-    name: "A 정상2+오류1(표준코드)",
-    day: "20261013",
-    rows: [[1], [2], [3, { msupStdCd: "880643500611" }]],
-  },
-  { name: "B 정상2", day: "20261014", rows: [[1], [2]] },
-  {
-    name: "C 오류행이 둘(2번 표준코드, 3번 금액0)",
-    day: "20261015",
-    rows: [[1], [2, { msupStdCd: "880643500611" }], [3, { msupSplyAmt: "0" }]],
-  },
-  { name: "D 정상1", day: "20261016", rows: [[1]] },
-];
-
-const tok = await post("/auth/jwt", {
-  client_id: process.env.KPIS_CID,
-  client_secret: process.env.KPIS_SEC,
-});
-log("JWT 발급", {
-  status: tok.status,
-  ms: tok.ms,
-  ok: !!tok.json.jwt,
-  msg: tok.json.msg,
-  statusField: tok.json.status,
-});
-const jwt = tok.json.jwt;
-if (!jwt) process.exit(1);
-
-const submitted = [];
-for (const c of CASES) {
-  const tag = c.name[0];
+async function submit(name, splyTpCd, msfr, dtfr = []) {
   const body = {
     aplHbin: HBIN,
-    splyTpCd: "1",
-    msfr: c.rows.map(([sno, over]) => msfr(sno, c.day, over)),
-    dtfr: c.rows.flatMap(([sno]) => dtfr(sno, tag)),
+    splyTpCd,
+    msfr,
+    ...(dtfr.length ? { dtfr } : {}),
   };
   const r = await post("/services/stgSplyDescBriefInfo.do", body, jwt);
-  log(`MA111 ${c.name}`, r);
-  submitted.push({ name: c.name, apiRcvNo: r.json.apiRcvNo });
-}
-
-// MA112: 처리중(2)이 끝날 때까지 10초 간격, 최대 6분
-const pending = new Map(
-  submitted.filter((s) => s.apiRcvNo).map((s) => [s.apiRcvNo, s.name]),
-);
-const seen = new Map();
-for (let i = 0; i < 36 && pending.size > 0; i++) {
-  for (const [no, name] of [...pending]) {
-    const r = await post(
+  const apiRcvNo = r.json.apiRcvNo;
+  let res = null;
+  // 처리중(2)이면 5초 간격 최대 2분
+  for (let i = 0; apiRcvNo && i < 24; i++) {
+    res = await post(
       "/services/getSplyDescBriefRstInfo.do",
-      { aplHbin: HBIN, apiRcvNo: no },
+      { aplHbin: HBIN, apiRcvNo },
       jwt,
     );
-    const st = r.json.dataPrsStatCd;
-    if (seen.get(no) !== st) {
-      log(`MA112 ${name} (${i * 10}s)`, r);
-      seen.set(no, st);
-    }
-    if (st === "3" || st === "4" || r.json.result === "fail")
-      pending.delete(no);
+    if (res.json.dataPrsStatCd !== "2") break;
+    await new Promise((ok) => setTimeout(ok, 5000));
   }
-  if (pending.size > 0) await new Promise((res) => setTimeout(res, 10000));
+  log(`${name} — MA111`, { status: r.status, ms: r.ms, json: r.json });
+  if (res) log(`${name} — MA112`, brief(res));
+  return { apiRcvNo, res: res?.json ?? {} };
 }
-if (pending.size > 0) log("미완료", [...pending.values()]);
+
+await token();
+const D = "20261019";
+
+const E = await submit("E 정상1(생략품목)", "1", [row(1, P1, D)]);
+await submit("F 정상1+단가오류1(1원)", "1", [
+  row(1, P1, "20261018"),
+  row(2, P2, "20261018", { price: 1 }),
+]);
+await submit("G 정상1+포장수량오류1", "1", [
+  row(1, P1, "20261017"),
+  row(2, P2, "20261017", { pack: "7" }),
+]);
+await submit("H E와 같은 내용 재전송(중복)", "1", [row(1, P1, D)]);
+await submit(
+  "L 일련번호 부착품목, 가짜 일련번호 2개",
+  "1",
+  [row(1, P3, "20261016", { snoTp: "1" })],
+  serials(1, 2, "L"),
+);
+await submit("L2 일련번호 부착품목인데 을지 없음", "1", [
+  row(1, P3, "20261016", { snoTp: "1" }),
+]);
+await submit("K 반품(2) 정상1", "2", [row(1, P1, "20261015")]);
+
+// 대량: 정상 100줄 / 100줄 중 1줄 단가오류
+const many = (day, bad) =>
+  Array.from({ length: 100 }, (_, i) =>
+    row(i + 1, i % 2 ? P1 : P2, day, bad === i + 1 ? { price: 1 } : {}),
+  );
+await submit("M 정상 100줄", "1", many("20261014"));
+await submit("N 100줄 중 37번 단가오류", "1", many("20261013", 37));
+
+// 접수완료된 E를 대상으로 정정·취소·반송
+const hira = E.res.hiraRcvNo;
+if (hira) {
+  await submit("J 정정(4): E 1번 줄 수량 2→3", "4", [
+    row(1, P1, D, { qty: 3, rcvNo: hira }),
+  ]);
+  await submit("I 취소(5): E 1번 줄", "5", [row(1, P1, D, { rcvNo: hira })]);
+  const rb = await post(
+    "/services/stgSplyRetnBriefInfo.do",
+    {
+      aplHbin: HBIN,
+      hiraRcvNo: hira,
+      hiraRcvDd: hira.slice(0, 8),
+      msupMsfrSno: "1",
+      retnRsTxt: "단가 및 수량 정정",
+    },
+    jwt,
+  );
+  log("O MA113 반송신청 E", rb);
+  const rq = await post(
+    "/services/getSplyRetnReqRstInfo.do",
+    { aplHbin: HBIN, hiraRcvNo: hira, msupMsfrSno: "1", splyDd: D },
+    jwt,
+  );
+  log("O MA114 반송결과 E", rq);
+} else {
+  log("E 접수번호 없음 — 정정·취소·반송 생략", {});
+}
+
+const q = await post(
+  "/services/getTimelyBriefRateListQtInfo.do",
+  { aplHbin: HBIN, rcvYr: "2026", rcvQt: "", owcpOtcTpCd: "" },
+  jwt,
+);
+log("P MA116 적기보고율", q);
+// 토큰 없이 / 잘못된 토큰
+log(
+  "Q 토큰없이 MA112",
+  await post(
+    "/services/getSplyDescBriefRstInfo.do",
+    { aplHbin: HBIN, apiRcvNo: E.apiRcvNo },
+    null,
+  ),
+);
+log(
+  "R 다른 사업자번호로 MA112",
+  await post(
+    "/services/getSplyDescBriefRstInfo.do",
+    { aplHbin: "1234567890", apiRcvNo: E.apiRcvNo },
+    jwt,
+  ),
+);
