@@ -90,7 +90,7 @@ function row(sno, p, day, over = {}) {
     msupRcvNo: over.rcvNo ?? "",
     msupRetnCmpsCd: "",
     msupMnfNo: "T26A01",
-    maxDstbDd: "20281231",
+    maxDstbDd: "281231",
     msupSnoTpCd: over.snoTp ?? "0",
     msupRmkTxt: "",
   };
