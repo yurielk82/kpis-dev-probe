@@ -4,7 +4,19 @@ const BASE = "http://devopenapi.kpis.or.kr/v1";
 const HBIN = "1058211787";
 const RUN = process.env.GITHUB_RUN_NUMBER ?? "0";
 
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+// 개발 서버는 연결이 자주 끊긴다(2026-10-21 3차: 10초 뒤 fetch failed). 시험이라 끊기면 3초 쉬고 최대 4번 다시 한다
 async function post(path, body, token) {
+  let r;
+  for (let i = 0; i < 4; i++) {
+    await pause(1500);
+    r = await postOnce(path, body, token);
+    if (r.status !== 0) return { ...r, tries: i + 1 };
+    await pause(3000);
+  }
+  return { ...r, tries: 4 };
+}
+async function postOnce(path, body, token) {
   const headers = { "Content-Type": "application/json", Accept: "*/*" };
   if (token) headers.Authorization = `Bearer ${token}`;
   const t0 = Date.now();
@@ -33,6 +45,7 @@ const brief = (r) => {
   const j = r.json ?? {};
   return {
     status: r.status,
+    tries: r.tries,
     ms: r.ms,
     result: j.result,
     msg: j.resultMessage,
