@@ -1,4 +1,4 @@
-// KPIS 개발계 MA111/MA112 동작 확인 (가이드 공개 테스트 계정, aplHbin 1058211787)
+// KPIS 개발계 폐기(3) MA111/MA112 — 운영 폐기 줄 모양(자사·금액0·일련번호 없음) 그대로 (가이드 공개 테스트 계정, aplHbin 1058211787)
 const BASE = "http://devopenapi.kpis.or.kr/v1";
 const HBIN = "1058211787";
 const RUN = process.env.GITHUB_RUN_NUMBER ?? "0";
@@ -66,19 +66,31 @@ function dtfr(sno, tag) {
   }));
 }
 
+const OWN = {
+  tkrHbinNm: "심평원",
+  tkrHbin: HBIN,
+  msupSplyAmt: "0",
+  msupSplyUnprc: "0",
+};
 const CASES = [
   {
-    name: "A 정상2+오류1(표준코드)",
-    day: "20261013",
-    rows: [[1], [2], [3, { msupStdCd: "880643500611" }]],
+    name: "A 폐기 일련번호없음 금액0",
+    day: "20261019",
+    sn: false,
+    rows: [[1, { ...OWN, msupSnoTpCd: "0" }]],
   },
-  { name: "B 정상2", day: "20261014", rows: [[1], [2]] },
   {
-    name: "C 오류행이 둘(2번 표준코드, 3번 금액0)",
-    day: "20261015",
-    rows: [[1], [2, { msupStdCd: "880643500611" }], [3, { msupSplyAmt: "0" }]],
+    name: "B 폐기 일련번호있음 금액0",
+    day: "20261020",
+    sn: true,
+    rows: [[1, { ...OWN, msupSnoTpCd: "1" }]],
   },
-  { name: "D 정상1", day: "20261016", rows: [[1]] },
+  {
+    name: "C 폐기 금액있음",
+    day: "20261021",
+    sn: false,
+    rows: [[1, { tkrHbinNm: "심평원", tkrHbin: HBIN, msupSnoTpCd: "0" }]],
+  },
 ];
 
 const tok = await post("/auth/jwt", {
@@ -100,9 +112,9 @@ for (const c of CASES) {
   const tag = c.name[0];
   const body = {
     aplHbin: HBIN,
-    splyTpCd: "1",
+    splyTpCd: "3",
     msfr: c.rows.map(([sno, over]) => msfr(sno, c.day, over)),
-    dtfr: c.rows.flatMap(([sno]) => dtfr(sno, tag)),
+    dtfr: c.sn ? c.rows.flatMap(([sno]) => dtfr(sno, tag)) : [],
   };
   const r = await post("/services/stgSplyDescBriefInfo.do", body, jwt);
   log(`MA111 ${c.name}`, r);
